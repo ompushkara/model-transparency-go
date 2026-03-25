@@ -55,6 +55,19 @@
 //	pkcs11:token=TOKEN;id=%AB%CD;object=KEY?pin-value=PIN
 //	pkcs11:token=TOKEN;object=KEY?pin-source=file:///path/to/pin.txt
 //	pkcs11:slot-id=0;object=KEY?pin-value=PIN&module-path=/usr/lib/softhsm/libsofthsm2.so
+//
+// model-signing CLI (--json, requires a binary built with -tags=pkcs11):
+//
+// Keys must match "model-signing sign pkcs11-key --help" or "sign pkcs11-certificate --help".
+// Use pkcs11_uri in JSON for --pkcs11-uri; certificate_chain is comma-separated paths.
+//
+//	model-signing sign pkcs11-key /path/to/model \
+//	    --json '{"pkcs11_uri":"pkcs11:token=mytoken;object=mykey?pin-value=1234","signature":"/path/to/model.sig"}'
+//
+//	model-signing sign pkcs11-certificate /path/to/model \
+//	    --json '{"pkcs11_uri":"...","signing_certificate":"/path/to/cert.pem","certificate_chain":"/int.pem,/root.pem"}'
+//
+// Or: CGO_ENABLED=1 go run -tags=pkcs11 ./cmd/model-signing/ sign pkcs11-key /path/to/model --json '{...}'
 package main
 
 import (

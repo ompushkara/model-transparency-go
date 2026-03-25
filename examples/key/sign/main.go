@@ -34,6 +34,17 @@
 // Demo mode (uses test keys from the repository):
 //
 //	go run ./examples/key/sign/main.go
+//
+// model-signing CLI (--json):
+//
+// The same options can be passed via the model-signing binary; MODEL_PATH is positional.
+// --json accepts a JSON object whose keys must match flags from "model-signing sign key --help"
+// (underscores in keys are normalized to hyphens). Unknown keys are rejected.
+//
+//	model-signing sign key /path/to/model \
+//	    --json '{"private_key":"/path/to/private-key.pem","signature":"/path/to/model.sig","log_level":"info"}'
+//
+// Or: go run ./cmd/model-signing/ sign key /path/to/model --json '{"private_key":"..."}'
 package main
 
 import (

@@ -43,6 +43,16 @@
 //	    --model-path=/path/to/model \
 //	    --signature-path=/path/to/model.sig \
 //	    --staging
+//
+// model-signing CLI (--json):
+//
+// Default Sigstore flow uses the parent sign command (MODEL_PATH positional). Keys in --json
+// must match flags from "model-signing sign --help" / "model-signing sign sigstore --help".
+//
+//	model-signing sign /path/to/model \
+//	    --json '{"signature":"/path/to/model.sig","use_staging":true,"use_ambient_credentials":true,"log_level":"debug"}'
+//
+// Or: go run ./cmd/model-signing/ sign /path/to/model --json '{"signature":"..."}'
 package main
 
 import (
