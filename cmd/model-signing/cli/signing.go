@@ -16,13 +16,11 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sigstore/model-signing/cmd/model-signing/cli/options"
-	"github.com/sigstore/model-signing/pkg/logging"
 	cert "github.com/sigstore/model-signing/pkg/signing/certificate"
 	key "github.com/sigstore/model-signing/pkg/signing/key"
 	sigstore "github.com/sigstore/model-signing/pkg/signing/sigstore"
@@ -55,8 +53,8 @@ func runSigstoreSign(ctx context.Context, o *options.SigstoreSignOptions, modelP
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		status, err := signer.Sign(ctx)
-		if ro.GetLogLevel() < logging.LevelSilent {
-			fmt.Println(status.Message)
+		if perr := printSignVerifyResult(status.Verified, status.Message); perr != nil {
+			return perr
 		}
 		return err
 	})
@@ -143,8 +141,8 @@ func NewKeySigner() *cobra.Command {
 				ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 				defer cancel()
 				status, err := signer.Sign(ctx)
-				if ro.GetLogLevel() < logging.LevelSilent {
-					fmt.Println(status.Message)
+				if perr := printSignVerifyResult(status.Verified, status.Message); perr != nil {
+					return perr
 				}
 				return err
 			})
@@ -202,8 +200,8 @@ func NewCertificateSigner() *cobra.Command {
 				ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 				defer cancel()
 				status, err := signer.Sign(ctx)
-				if ro.GetLogLevel() < logging.LevelSilent {
-					fmt.Println(status.Message)
+				if perr := printSignVerifyResult(status.Verified, status.Message); perr != nil {
+					return perr
 				}
 				return err
 			})

@@ -17,6 +17,9 @@
 package options
 
 import (
+	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sigstore/model-signing/pkg/logging"
@@ -35,6 +38,8 @@ type RootOptions struct {
 	LogLevel string
 	// LogFormat sets the log output format (text, json).
 	LogFormat string
+	// Output sets the sign/verify result format on stdout (text, json).
+	Output string
 	// Timeout sets the maximum duration for command execution.
 	Timeout time.Duration
 }
@@ -63,6 +68,9 @@ func (o *RootOptions) AddFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringVar(&o.LogFormat, "log-format", "text",
 		"set the log output format (text, json)")
 
+	cmd.PersistentFlags().StringVar(&o.Output, "output", "text",
+		"sign/verify result format on stdout: text (default) or json")
+
 	cmd.PersistentFlags().DurationVarP(&o.Timeout, "timeout", "t", DefaultTimeout,
 		"timeout for commands")
 }
@@ -83,4 +91,48 @@ func (o *RootOptions) NewLogger() logging.Logger {
 		Level:  o.GetLogLevel(),
 		Format: o.GetLogFormat(),
 	})
+}
+
+// ValidateOutput returns an error if Output is not a supported format.
+func (o *RootOptions) ValidateOutput() error {
+	v := strings.ToLower(strings.TrimSpace(o.Output))
+	switch v {
+	case "", "text", "json":
+		return nil
+	default:
+		return fmt.Errorf("invalid --output %q: want text or json", o.Output)
+	}
+}
+
+// ResultOutputFormat returns the normalized result output format (text or json).
+func (o *RootOptions) ResultOutputFormat() string {
+	v := strings.ToLower(strings.TrimSpace(o.Output))
+	if v == "json" {
+		return "json"
+	}
+	return "text"
+}
+
+// signVerifyResultJSON is the JSON shape for --output json (sign/verify stdout line).
+type signVerifyResultJSON struct {
+	Verified bool   `json:"verified"`
+	Message  string `json:"message"`
+}
+
+// SignVerifyResultLine returns the sign/verify result line for stdout and whether it should
+// be printed. When log level is silent, emit is false and line is empty.
+func (o *RootOptions) SignVerifyResultLine(verified bool, message string) (line string, emit bool, err error) {
+	if o.GetLogLevel() >= logging.LevelSilent {
+		return "", false, nil
+	}
+	switch o.ResultOutputFormat() {
+	case "json":
+		b, err := json.Marshal(signVerifyResultJSON{Verified: verified, Message: message})
+		if err != nil {
+			return "", false, err
+		}
+		return string(b), true, nil
+	default:
+		return message, true, nil
+	}
 }

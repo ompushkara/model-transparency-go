@@ -18,13 +18,11 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sigstore/model-signing/cmd/model-signing/cli/options"
-	"github.com/sigstore/model-signing/pkg/logging"
 	pkcs11 "github.com/sigstore/model-signing/pkg/signing/pkcs11"
 	"github.com/sigstore/model-signing/pkg/tracing"
 )
@@ -81,8 +79,8 @@ func NewPkcs11KeySigner() *cobra.Command {
 				ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 				defer cancel()
 				status, err := signer.Sign(ctx)
-				if ro.GetLogLevel() < logging.LevelSilent {
-					fmt.Println(status.Message)
+				if perr := printSignVerifyResult(status.Verified, status.Message); perr != nil {
+					return perr
 				}
 				return err
 			})
@@ -139,8 +137,8 @@ func NewPkcs11CertificateSigner() *cobra.Command {
 				ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 				defer cancel()
 				status, err := signer.Sign(ctx)
-				if ro.GetLogLevel() < logging.LevelSilent {
-					fmt.Println(status.Message)
+				if perr := printSignVerifyResult(status.Verified, status.Message); perr != nil {
+					return perr
 				}
 				return err
 			})

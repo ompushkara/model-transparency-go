@@ -16,13 +16,11 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sigstore/model-signing/cmd/model-signing/cli/options"
-	"github.com/sigstore/model-signing/pkg/logging"
 	"github.com/sigstore/model-signing/pkg/tracing"
 	cert "github.com/sigstore/model-signing/pkg/verify/certificate"
 	keyverify "github.com/sigstore/model-signing/pkg/verify/key"
@@ -54,8 +52,8 @@ func runSigstoreVerify(ctx context.Context, o *options.SigstoreVerifyOptions, mo
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		status, err := verifier.Verify(ctx)
-		if ro.GetLogLevel() < logging.LevelSilent {
-			fmt.Println(status.Message)
+		if perr := printSignVerifyResult(status.Verified, status.Message); perr != nil {
+			return perr
 		}
 		return err
 	})
@@ -137,8 +135,8 @@ management protocols.`
 				ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 				defer cancel()
 				status, err := verifier.Verify(ctx)
-				if ro.GetLogLevel() < logging.LevelSilent {
-					fmt.Println(status.Message)
+				if perr := printSignVerifyResult(status.Verified, status.Message); perr != nil {
+					return perr
 				}
 				return err
 			})
@@ -195,8 +193,8 @@ func NewCertificateVerifier() *cobra.Command {
 				ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 				defer cancel()
 				status, err := verifier.Verify(ctx)
-				if ro.GetLogLevel() < logging.LevelSilent {
-					fmt.Println(status.Message)
+				if perr := printSignVerifyResult(status.Verified, status.Message); perr != nil {
+					return perr
 				}
 				return err
 			})
