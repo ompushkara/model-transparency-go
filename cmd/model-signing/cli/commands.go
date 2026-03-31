@@ -53,11 +53,7 @@ func New() *cobra.Command {
 		SilenceUsage:      true,
 		TraverseChildren:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			// Apply --json (flag values) before validating --output (sign/verify result format).
 			if err := jso.ParseAndApply(cmd); err != nil {
-				return err
-			}
-			if err := ro.ValidateOutput(); err != nil {
 				return err
 			}
 			if ro.OutputFile != "" {
@@ -101,16 +97,4 @@ func New() *cobra.Command {
 	cmd.AddCommand(version.WithFont("starwars"))
 	cmd.AddCommand(cobracompletefig.CreateCompletionSpecCommand())
 	return cmd
-}
-
-func printSignVerifyResult(verified bool, message string) error {
-	line, emit, err := ro.SignVerifyResultLine(verified, message)
-	if err != nil {
-		return err
-	}
-	if !emit {
-		return nil
-	}
-	fmt.Fprintln(os.Stdout, line)
-	return nil
 }

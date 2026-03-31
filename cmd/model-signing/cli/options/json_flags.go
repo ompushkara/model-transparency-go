@@ -36,7 +36,6 @@ const stdinJSONArg = "-"
 var ErrUnknownJSONFlagKey = errors.New("unknown JSON key: not a defined flag for this command")
 
 // JSONFlags defines --json: set other flags from a JSON object or key=value pairs (repeat to merge).
-// This is not --output json (sign/verify result shape) and not --log-format json (log records).
 type JSONFlags struct {
 	jsonInputs []string
 }
@@ -50,7 +49,7 @@ func NewJSONFlags() *JSONFlags {
 // AddPersistentFlags registers persistent --json (e.g. on the CLI root) so it is available on all subcommands.
 func (o *JSONFlags) AddPersistentFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringArrayVar(&o.jsonInputs, "json", nil,
-		fmt.Sprintf(`Set flags from JSON object and/or key=value (repeat to merge). Use %q to read JSON or key=value text from stdin. Keys must name this command's flags. Not sign/verify result format (--output json) or log format (--log-format json). CLI flags override --json.`, stdinJSONArg))
+		fmt.Sprintf(`Set flags from JSON object and/or key=value (repeat to merge). Use %q to read JSON or key=value text from stdin. Keys must name this command's flags. Not the same as --log-format json. CLI flags override --json.`, stdinJSONArg))
 }
 
 // ParseAndApply merges --json into cmd flags when any --json value was set.
@@ -58,7 +57,7 @@ func (o *JSONFlags) ParseAndApply(cmd *cobra.Command) error {
 	if !o.hasJSONInput() {
 		return nil
 	}
-	data, err := o.parse(cmd)
+	data, err := o.parseWithStdin(cmd, os.Stdin)
 	if err != nil {
 		return err
 	}
@@ -124,13 +123,9 @@ func normalizeFlagKey(cmd *cobra.Command, name string) string {
 	return string(fn(cmd.Flags(), name))
 }
 
-// parse merges and validates all --json values.
+// parseWithStdin merges and validates all --json values (stdin used when an argument is "-").
 // For JSON objects, every key must be a defined (non-hidden) flag on cmd; unknown keys
 // fail with an error wrapping ErrUnknownJSONFlagKey.
-func (o *JSONFlags) parse(cmd *cobra.Command) (map[string]string, error) {
-	return o.parseWithStdin(cmd, os.Stdin)
-}
-
 func (o *JSONFlags) parseWithStdin(cmd *cobra.Command, stdin io.Reader) (map[string]string, error) {
 	allowed := allowedFlagNames(cmd)
 	out := make(map[string]string)
@@ -184,39 +179,23 @@ func materializeJSONArg(rawIn string, stdin io.Reader, stdinConsumed *bool) (str
 }
 
 func mergeJSONObject(cmd *cobra.Command, dst map[string]string, allowed map[string]struct{}, raw string) error {
-	dec := json.NewDecoder(bytes.NewReader([]byte(raw)))
-	dec.UseNumber()
-	tok, err := dec.Token()
-	if err != nil {
-		return fmt.Errorf("invalid JSON for --json: %w", err)
-	}
-	if d, ok := tok.(json.Delim); !ok || d != '{' {
-		return fmt.Errorf("invalid JSON for --json: must be a JSON object (got %v)", tok)
-	}
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
 		return fmt.Errorf("invalid JSON for --json: %w", err)
 	}
-	if err := validateJSONKeysAgainstAllowed(cmd, obj, allowed); err != nil {
-		return err
+	if obj == nil {
+		return fmt.Errorf("invalid JSON for --json: must be a JSON object")
 	}
 	for key, rawMsg := range obj {
 		nk := normalizeFlagKey(cmd, key)
+		if _, ok := allowed[nk]; !ok {
+			return fmt.Errorf("%w: %q", ErrUnknownJSONFlagKey, key)
+		}
 		s, err := stringifyJSONValue(rawMsg)
 		if err != nil {
 			return fmt.Errorf("key %q: %w", key, err)
 		}
 		dst[nk] = s
-	}
-	return nil
-}
-
-func validateJSONKeysAgainstAllowed(cmd *cobra.Command, obj map[string]json.RawMessage, allowed map[string]struct{}) error {
-	for key := range obj {
-		nk := normalizeFlagKey(cmd, key)
-		if _, ok := allowed[nk]; !ok {
-			return fmt.Errorf("%w: %q", ErrUnknownJSONFlagKey, key)
-		}
 	}
 	return nil
 }
@@ -250,7 +229,7 @@ func stringifyInterface(v interface{}) (string, error) {
 	}
 }
 
-// splitCommaSeparatedKV splits a non-JSON --json value on commas so that
+// splitCommaSeparatedKV splits a non-JSON --json value on commas (values with commas must use JSON object form).
 func splitCommaSeparatedKV(raw string) []string {
 	if !strings.Contains(raw, ",") {
 		return []string{raw}
