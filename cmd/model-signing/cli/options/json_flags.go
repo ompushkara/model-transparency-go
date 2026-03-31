@@ -84,6 +84,8 @@ func (o *JSONFlags) applyParsed(cmd *cobra.Command, data map[string]string) erro
 			if err := f.Value.Set(v); err != nil {
 				return fmt.Errorf("apply --json to flag %q: %w", k, err)
 			}
+			// Required-flag validation uses pflag.Changed; CLI did not set these.
+			f.Changed = true
 		}
 	}
 	return nil
@@ -249,7 +251,6 @@ func stringifyInterface(v interface{}) (string, error) {
 }
 
 // splitCommaSeparatedKV splits a non-JSON --json value on commas so that
-// name=John,age=30,city=NYC works in one flag. Values containing commas must use JSON.
 func splitCommaSeparatedKV(raw string) []string {
 	if !strings.Contains(raw, ",") {
 		return []string{raw}

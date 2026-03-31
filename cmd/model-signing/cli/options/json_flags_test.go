@@ -21,6 +21,29 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestJSONFlags_ParseAndApply_satisfiesRequired(t *testing.T) {
+	root := &cobra.Command{Use: "root", TraverseChildren: true, SilenceUsage: true}
+	jso := NewJSONFlags()
+	jso.AddPersistentFlags(root)
+	sub := &cobra.Command{
+		Use:          "sub",
+		SilenceUsage: true,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return nil
+		},
+	}
+	sub.Flags().String("signature", "", "")
+	_ = sub.MarkFlagRequired("signature")
+	root.AddCommand(sub)
+	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		return jso.ParseAndApply(cmd)
+	}
+	root.SetArgs([]string{"sub", "--json", `{"signature":"/tmp/x"}`})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMaterializeJSONArg_stdin(t *testing.T) {
 	var consumed bool
 	got, err := materializeJSONArg("-", strings.NewReader(`  {"a": 1}  `), &consumed)
