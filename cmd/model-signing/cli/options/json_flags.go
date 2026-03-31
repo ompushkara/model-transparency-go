@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 
@@ -26,44 +28,44 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+// stdinJSONArg reads JSON (or key=value text) from stdin when --json is this value.
+const stdinJSONArg = "-"
+
 // ErrUnknownJSONFlagKey is returned when --json contains a key that is not a defined
 // (non-hidden) flag for the command being run.
 var ErrUnknownJSONFlagKey = errors.New("unknown JSON key: not a defined flag for this command")
 
-// JSONFlags defines a --json flag that accepts JSON objects and/or key=value pairs.
-// Parse validates keys against flags already registered on the command (local and inherited).
+// JSONFlags defines --json: set other flags from a JSON object or key=value pairs (repeat to merge).
+// This is not --output json (sign/verify result shape) and not --log-format json (log records).
 type JSONFlags struct {
-	// JSONData holds merged key/value pairs after a successful Parse.
-	JSONData map[string]string
-
 	jsonInputs []string
 }
 
-var _ FlagAdder = (*JSONFlags)(nil)
-
 // NewJSONFlags returns an empty JSONFlags. Register other flags on the command first,
-// then AddFlags, then call Parse(cmd) so allowed keys match existing flags.
+// then AddPersistentFlags, then call ParseAndApply(cmd) so allowed keys match existing flags.
 func NewJSONFlags() *JSONFlags {
 	return &JSONFlags{}
 }
 
-// AddFlags registers --json on the command's local flag set.
-func (o *JSONFlags) AddFlags(cmd *cobra.Command) {
-	o.registerJSON(cmd.Flags())
-}
-
 // AddPersistentFlags registers persistent --json (e.g. on the CLI root) so it is available on all subcommands.
 func (o *JSONFlags) AddPersistentFlags(cmd *cobra.Command) {
-	o.registerJSON(cmd.PersistentFlags())
+	cmd.PersistentFlags().StringArrayVar(&o.jsonInputs, "json", nil,
+		fmt.Sprintf(`Set flags from JSON object and/or key=value (repeat to merge). Use %q to read JSON or key=value text from stdin. Keys must name this command's flags. Not sign/verify result format (--output json) or log format (--log-format json). CLI flags override --json.`, stdinJSONArg))
 }
 
-func (o *JSONFlags) registerJSON(fs *flag.FlagSet) {
-	fs.StringArrayVar(&o.jsonInputs, "json", nil,
-		`Options as JSON object and/or key=value (repeat flag to merge). Keys must name flags valid for the command (hyphens or underscores, matching other flags). Explicit flags override --json.`)
+// ParseAndApply merges --json into cmd flags when any --json value was set.
+func (o *JSONFlags) ParseAndApply(cmd *cobra.Command) error {
+	if !o.hasJSONInput() {
+		return nil
+	}
+	data, err := o.parse(cmd)
+	if err != nil {
+		return err
+	}
+	return o.applyParsed(cmd, data)
 }
 
-// HasJSONInput reports whether any non-empty --json value was provided.
-func (o *JSONFlags) HasJSONInput() bool {
+func (o *JSONFlags) hasJSONInput() bool {
 	for _, s := range o.jsonInputs {
 		if strings.TrimSpace(s) != "" {
 			return true
@@ -72,9 +74,8 @@ func (o *JSONFlags) HasJSONInput() bool {
 	return false
 }
 
-// ApplyParsed sets each parsed value on cmd's flags when that flag was not already set on the command line.
-func (o *JSONFlags) ApplyParsed(cmd *cobra.Command) error {
-	for k, v := range o.JSONData {
+func (o *JSONFlags) applyParsed(cmd *cobra.Command, data map[string]string) error {
+	for k, v := range data {
 		f := cmd.Flag(k)
 		if f == nil {
 			return fmt.Errorf("internal error: flag %q not found after --json parse", k)
@@ -86,17 +87,6 @@ func (o *JSONFlags) ApplyParsed(cmd *cobra.Command) error {
 		}
 	}
 	return nil
-}
-
-// ParseAndApply runs Parse then ApplyParsed. No-op when HasJSONInput is false.
-func (o *JSONFlags) ParseAndApply(cmd *cobra.Command) error {
-	if !o.HasJSONInput() {
-		return nil
-	}
-	if err := o.Parse(cmd); err != nil {
-		return err
-	}
-	return o.ApplyParsed(cmd)
 }
 
 // allowedFlagNames returns long names of flags available on cmd, excluding --json itself,
@@ -132,20 +122,29 @@ func normalizeFlagKey(cmd *cobra.Command, name string) string {
 	return string(fn(cmd.Flags(), name))
 }
 
-// Parse merges and validates all --json values into JSONData.
+// parse merges and validates all --json values.
 // For JSON objects, every key must be a defined (non-hidden) flag on cmd; unknown keys
 // fail with an error wrapping ErrUnknownJSONFlagKey.
-func (o *JSONFlags) Parse(cmd *cobra.Command) error {
+func (o *JSONFlags) parse(cmd *cobra.Command) (map[string]string, error) {
+	return o.parseWithStdin(cmd, os.Stdin)
+}
+
+func (o *JSONFlags) parseWithStdin(cmd *cobra.Command, stdin io.Reader) (map[string]string, error) {
 	allowed := allowedFlagNames(cmd)
 	out := make(map[string]string)
-	for _, raw := range o.jsonInputs {
+	var stdinConsumed bool
+	for _, rawIn := range o.jsonInputs {
+		raw, err := materializeJSONArg(rawIn, stdin, &stdinConsumed)
+		if err != nil {
+			return nil, err
+		}
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
 			continue
 		}
 		if strings.HasPrefix(raw, "{") {
 			if err := mergeJSONObject(cmd, out, allowed, raw); err != nil {
-				return err
+				return nil, err
 			}
 			continue
 		}
@@ -155,12 +154,31 @@ func (o *JSONFlags) Parse(cmd *cobra.Command) error {
 				continue
 			}
 			if err := mergeKeyValue(cmd, out, allowed, part); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
-	o.JSONData = out
-	return nil
+	return out, nil
+}
+
+func materializeJSONArg(rawIn string, stdin io.Reader, stdinConsumed *bool) (string, error) {
+	rawIn = strings.TrimSpace(rawIn)
+	if rawIn != stdinJSONArg {
+		return rawIn, nil
+	}
+	if *stdinConsumed {
+		return "", fmt.Errorf("only one --json %s can read stdin", stdinJSONArg)
+	}
+	*stdinConsumed = true
+	b, err := io.ReadAll(stdin)
+	if err != nil {
+		return "", fmt.Errorf("read stdin for --json %s: %w", stdinJSONArg, err)
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "" {
+		return "", fmt.Errorf("stdin for --json %s was empty", stdinJSONArg)
+	}
+	return s, nil
 }
 
 func mergeJSONObject(cmd *cobra.Command, dst map[string]string, allowed map[string]struct{}, raw string) error {

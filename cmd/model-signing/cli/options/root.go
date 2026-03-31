@@ -14,6 +14,11 @@
 
 // Package options defines the command-line options and flags for the model-signing CLI.
 // It provides option structures for root commands, signing, and verification operations.
+//
+// JSON shows up in three unrelated flags:
+//   - --json: merge values into other flags (see JSONFlags).
+//   - --output json: machine-readable sign/verify result line on stdout.
+//   - --log-format json: structured log records.
 package options
 
 import (
@@ -29,6 +34,12 @@ import (
 // EnvPrefix is the prefix used for environment variables that configure the CLI.
 const EnvPrefix = "MODEL_SIGNING"
 
+// Sign/verify stdout result format (--output). Distinct from --log-format and from --json flag values.
+const (
+	ResultOutputText = "text"
+	ResultOutputJSON = "json"
+)
+
 // RootOptions defines flags and options for the root CLI command.
 // These options are available globally across all subcommands.
 type RootOptions struct {
@@ -38,7 +49,7 @@ type RootOptions struct {
 	LogLevel string
 	// LogFormat sets the log output format (text, json).
 	LogFormat string
-	// Output sets the sign/verify result format on stdout (text, json).
+	// Output sets the sign/verify result line format on stdout (ResultOutputText or ResultOutputJSON).
 	Output string
 	// Timeout sets the maximum duration for command execution.
 	Timeout time.Duration
@@ -66,10 +77,11 @@ func (o *RootOptions) AddFlags(cmd *cobra.Command) {
 		"set the minimum log level (debug, info, warn, error, silent)")
 
 	cmd.PersistentFlags().StringVar(&o.LogFormat, "log-format", "text",
-		"set the log output format (text, json)")
+		"log record format: text or json (not --output json and not --json flag values)")
 
-	cmd.PersistentFlags().StringVar(&o.Output, "output", "text",
-		"sign/verify result format on stdout: text (default) or json")
+	cmd.PersistentFlags().StringVar(&o.Output, "output", ResultOutputText,
+		fmt.Sprintf("sign/verify result on stdout: %s (default) or %s (distinct from --log-format json and --json)",
+			ResultOutputText, ResultOutputJSON))
 
 	cmd.PersistentFlags().DurationVarP(&o.Timeout, "timeout", "t", DefaultTimeout,
 		"timeout for commands")
@@ -97,23 +109,22 @@ func (o *RootOptions) NewLogger() logging.Logger {
 func (o *RootOptions) ValidateOutput() error {
 	v := strings.ToLower(strings.TrimSpace(o.Output))
 	switch v {
-	case "", "text", "json":
+	case "", ResultOutputText, ResultOutputJSON:
 		return nil
 	default:
-		return fmt.Errorf("invalid --output %q: want text or json", o.Output)
+		return fmt.Errorf("invalid --output %q: want %s or %s", o.Output, ResultOutputText, ResultOutputJSON)
 	}
 }
 
-// ResultOutputFormat returns the normalized result output format (text or json).
+// ResultOutputFormat returns ResultOutputText or ResultOutputJSON.
 func (o *RootOptions) ResultOutputFormat() string {
-	v := strings.ToLower(strings.TrimSpace(o.Output))
-	if v == "json" {
-		return "json"
+	if strings.ToLower(strings.TrimSpace(o.Output)) == ResultOutputJSON {
+		return ResultOutputJSON
 	}
-	return "text"
+	return ResultOutputText
 }
 
-// signVerifyResultJSON is the JSON shape for --output json (sign/verify stdout line).
+// signVerifyResultJSON is the JSON shape for ResultOutputJSON on stdout.
 type signVerifyResultJSON struct {
 	Verified bool   `json:"verified"`
 	Message  string `json:"message"`
@@ -126,7 +137,7 @@ func (o *RootOptions) SignVerifyResultLine(verified bool, message string) (line 
 		return "", false, nil
 	}
 	switch o.ResultOutputFormat() {
-	case "json":
+	case ResultOutputJSON:
 		b, err := json.Marshal(signVerifyResultJSON{Verified: verified, Message: message})
 		if err != nil {
 			return "", false, err

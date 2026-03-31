@@ -53,6 +53,7 @@ func New() *cobra.Command {
 		SilenceUsage:      true,
 		TraverseChildren:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			// Apply --json (flag values) before validating --output (sign/verify result format).
 			if err := jso.ParseAndApply(cmd); err != nil {
 				return err
 			}

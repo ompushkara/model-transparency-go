@@ -27,8 +27,8 @@ func TestRootOptions_ValidateOutput(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "default empty", output: "", wantErr: false},
-		{name: "text", output: "text", wantErr: false},
-		{name: "json", output: "json", wantErr: false},
+		{name: "text", output: ResultOutputText, wantErr: false},
+		{name: "json", output: ResultOutputJSON, wantErr: false},
 		{name: "JSON case", output: "JSON", wantErr: false},
 		{name: "spaces", output: "  json  ", wantErr: false},
 		{name: "invalid", output: "yaml", wantErr: true},
@@ -52,11 +52,11 @@ func TestRootOptions_ResultOutputFormat(t *testing.T) {
 		output string
 		want   string
 	}{
-		{output: "", want: "text"},
-		{output: "text", want: "text"},
-		{output: "TEXT", want: "text"},
-		{output: "json", want: "json"},
-		{output: " JSON ", want: "json"},
+		{output: "", want: ResultOutputText},
+		{output: ResultOutputText, want: ResultOutputText},
+		{output: "TEXT", want: ResultOutputText},
+		{output: ResultOutputJSON, want: ResultOutputJSON},
+		{output: " JSON ", want: ResultOutputJSON},
 	}
 	for _, tt := range tests {
 		o := &RootOptions{Output: tt.output}
@@ -74,12 +74,11 @@ func TestRootOptions_SignVerifyResultLine(t *testing.T) {
 		message   string
 		wantLine  string
 		wantEmit  bool
-		wantJSON  bool // if true, wantLine must unmarshal as signVerifyResultJSON
-		checkJSON func(t *testing.T, raw string)
+		checkJSON func(t *testing.T, raw string) // if set, line is JSON; otherwise wantLine applies
 	}{
 		{
 			name:     "silent skips",
-			opts:     RootOptions{LogLevel: "silent", Output: "json"},
+			opts:     RootOptions{LogLevel: "silent", Output: ResultOutputJSON},
 			verified: true,
 			message:  "ok",
 			wantLine: "",
@@ -87,7 +86,7 @@ func TestRootOptions_SignVerifyResultLine(t *testing.T) {
 		},
 		{
 			name:     "text info",
-			opts:     RootOptions{LogLevel: "info", Output: "text"},
+			opts:     RootOptions{LogLevel: "info", Output: ResultOutputText},
 			verified: true,
 			message:  "Verification succeeded",
 			wantLine: "Verification succeeded",
@@ -95,11 +94,10 @@ func TestRootOptions_SignVerifyResultLine(t *testing.T) {
 		},
 		{
 			name:     "json info",
-			opts:     RootOptions{LogLevel: "info", Output: "json"},
+			opts:     RootOptions{LogLevel: "info", Output: ResultOutputJSON},
 			verified: true,
 			message:  "Verification succeeded",
 			wantEmit: true,
-			wantJSON: true,
 			checkJSON: func(t *testing.T, raw string) {
 				t.Helper()
 				var got signVerifyResultJSON
@@ -113,11 +111,10 @@ func TestRootOptions_SignVerifyResultLine(t *testing.T) {
 		},
 		{
 			name:     "json failure fields",
-			opts:     RootOptions{LogLevel: "warn", Output: "json"},
+			opts:     RootOptions{LogLevel: "warn", Output: ResultOutputJSON},
 			verified: false,
 			message:  "bad: x",
 			wantEmit: true,
-			wantJSON: true,
 			checkJSON: func(t *testing.T, raw string) {
 				t.Helper()
 				var got signVerifyResultJSON
@@ -131,11 +128,10 @@ func TestRootOptions_SignVerifyResultLine(t *testing.T) {
 		},
 		{
 			name:     "json escapes message",
-			opts:     RootOptions{LogLevel: "debug", Output: "json"},
+			opts:     RootOptions{LogLevel: "debug", Output: ResultOutputJSON},
 			verified: false,
 			message:  `quote"and\nline`,
 			wantEmit: true,
-			wantJSON: true,
 			checkJSON: func(t *testing.T, raw string) {
 				t.Helper()
 				var got signVerifyResultJSON
@@ -157,15 +153,16 @@ func TestRootOptions_SignVerifyResultLine(t *testing.T) {
 			if emit != tt.wantEmit {
 				t.Fatalf("emit = %v, want %v", emit, tt.wantEmit)
 			}
-			if !tt.wantJSON && line != tt.wantLine {
-				t.Fatalf("line = %q, want %q", line, tt.wantLine)
+			if tt.checkJSON == nil {
+				if line != tt.wantLine {
+					t.Fatalf("line = %q, want %q", line, tt.wantLine)
+				}
+				return
 			}
-			if tt.wantJSON && tt.checkJSON != nil {
-				tt.checkJSON(t, line)
-			}
-			if tt.wantJSON && !strings.HasPrefix(line, "{") {
+			if !strings.HasPrefix(line, "{") {
 				t.Fatalf("expected JSON object, got %q", line)
 			}
+			tt.checkJSON(t, line)
 		})
 	}
 }

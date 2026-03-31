@@ -510,7 +510,9 @@ The CLI supports the following global options available for all commands:
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--log-level` | Set the minimum log level (`debug`, `info`, `warn`, `error`, `silent`) | `info` |
-| `--log-format` | Set the log output format (`text`, `json`) | `text` |
+| `--log-format` | Log record format (`text`, `json`). Not the same as `--output json` or `--json`. | `text` |
+| `--output` | Sign/verify **result** line on stdout: `text` or `json`. Not log format; not the `--json` flag. | `text` |
+| `--json` | Set other flags from a JSON object or `key=value` (repeat to merge). Use `--json -` to read that text from stdin. Not result or log format. | (none) |
 | `--output-file` | Redirect log output to a file | stdout |
 | `--timeout` | Command execution timeout | `3m` |
 
@@ -522,6 +524,10 @@ The CLI supports the following global options available for all commands:
 
 # JSON format logs
 [...]$ model-signing sign bert-base-uncased --log-level debug --log-format json --output-file output.log
+
+# Machine-readable sign/verify result (one JSON object on stdout; logs still follow --log-format)
+[...]$ model-signing verify bert-base-uncased --signature model.sig \
+  --identity "$identity" --identity-provider "$oidc_provider" --output json
 
 # Suppress all output except errors
 [...]$ model-signing verify bert-base-uncased \
