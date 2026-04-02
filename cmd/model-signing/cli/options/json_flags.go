@@ -31,6 +31,10 @@ import (
 // stdinJSONArg reads JSON (or key=value text) from stdin when --json is this value.
 const stdinJSONArg = "-"
 
+// JSONModelPathKey is the reserved --json object / key=value key for the model path when
+// MODEL_PATH is not passed as a positional argument. Positional MODEL_PATH wins if present.
+const JSONModelPathKey = "model"
+
 // ErrUnknownJSONFlagKey is returned when --json contains a key that is not a defined
 // (non-hidden) flag for the command being run.
 var ErrUnknownJSONFlagKey = errors.New("unknown JSON key: not a defined flag for this command")
@@ -38,6 +42,9 @@ var ErrUnknownJSONFlagKey = errors.New("unknown JSON key: not a defined flag for
 // JSONFlags defines --json: set other flags from a JSON object or key=value pairs (repeat to merge).
 type JSONFlags struct {
 	jsonInputs []string
+
+	// modelPathFromJSON is set from JSON key JSONModelPathKey when present; cleared each ParseAndApply.
+	modelPathFromJSON string
 }
 
 // NewJSONFlags returns an empty JSONFlags. Register other flags on the command first,
@@ -49,11 +56,25 @@ func NewJSONFlags() *JSONFlags {
 // AddPersistentFlags registers persistent --json (e.g. on the CLI root) so it is available on all subcommands.
 func (o *JSONFlags) AddPersistentFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringArrayVar(&o.jsonInputs, "json", nil,
-		fmt.Sprintf(`Set flags from JSON object and/or key=value (repeat to merge). Use %q to read JSON or key=value text from stdin. Keys must name this command's flags. Not the same as --log-format json. CLI flags override --json.`, stdinJSONArg))
+		fmt.Sprintf(`Set flags from JSON object and/or key=value (repeat to merge). Use %q to read JSON or key=value text from stdin. Keys must name this command's flags, plus reserved key %q for the model path when MODEL_PATH is omitted (positional wins if both are set). Not the same as --log-format json. CLI flags override --json.`, stdinJSONArg, JSONModelPathKey))
+}
+
+// ResolveModelPath returns the model path for sign/verify: positional args[0] when present
+// (takes precedence over JSON), otherwise the value from reserved key JSONModelPathKey after ParseAndApply.
+func (o *JSONFlags) ResolveModelPath(args []string) (string, error) {
+	if len(args) > 0 {
+		return args[0], nil
+	}
+	m := strings.TrimSpace(o.modelPathFromJSON)
+	if m == "" {
+		return "", fmt.Errorf(`model path required: pass MODEL_PATH as a positional argument or set "model" in --json`)
+	}
+	return m, nil
 }
 
 // ParseAndApply merges --json into cmd flags when any --json value was set.
 func (o *JSONFlags) ParseAndApply(cmd *cobra.Command) error {
+	o.modelPathFromJSON = ""
 	if !o.hasJSONInput() {
 		return nil
 	}
@@ -61,7 +82,12 @@ func (o *JSONFlags) ParseAndApply(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	return o.applyParsed(cmd, data)
+	for k, v := range data {
+		if err := applyJSONToFlag(cmd, k, v); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (o *JSONFlags) hasJSONInput() bool {
@@ -73,20 +99,18 @@ func (o *JSONFlags) hasJSONInput() bool {
 	return false
 }
 
-func (o *JSONFlags) applyParsed(cmd *cobra.Command, data map[string]string) error {
-	for k, v := range data {
-		f := cmd.Flag(k)
-		if f == nil {
-			return fmt.Errorf("internal error: flag %q not found after --json parse", k)
-		}
-		if !f.Changed {
-			if err := f.Value.Set(v); err != nil {
-				return fmt.Errorf("apply --json to flag %q: %w", k, err)
-			}
-			// Required-flag validation uses pflag.Changed; CLI did not set these.
-			f.Changed = true
-		}
+func applyJSONToFlag(cmd *cobra.Command, name, value string) error {
+	f := cmd.Flag(name)
+	if f == nil {
+		return fmt.Errorf("internal error: flag %q not found after --json parse", name)
 	}
+	if f.Changed {
+		return nil
+	}
+	if err := f.Value.Set(value); err != nil {
+		return fmt.Errorf("apply --json to flag %q: %w", name, err)
+	}
+	f.Changed = true
 	return nil
 }
 
@@ -155,6 +179,10 @@ func (o *JSONFlags) parseWithStdin(cmd *cobra.Command, stdin io.Reader) (map[str
 			}
 		}
 	}
+	if v, ok := out[JSONModelPathKey]; ok {
+		o.modelPathFromJSON = strings.TrimSpace(v)
+		delete(out, JSONModelPathKey)
+	}
 	return out, nil
 }
 
@@ -188,8 +216,10 @@ func mergeJSONObject(cmd *cobra.Command, dst map[string]string, allowed map[stri
 	}
 	for key, rawMsg := range obj {
 		nk := normalizeFlagKey(cmd, key)
-		if _, ok := allowed[nk]; !ok {
-			return fmt.Errorf("%w: %q", ErrUnknownJSONFlagKey, key)
+		if nk != JSONModelPathKey {
+			if _, ok := allowed[nk]; !ok {
+				return fmt.Errorf("%w: %q", ErrUnknownJSONFlagKey, key)
+			}
 		}
 		s, err := stringifyJSONValue(rawMsg)
 		if err != nil {
@@ -244,10 +274,11 @@ func mergeKeyValue(cmd *cobra.Command, dst map[string]string, allowed map[string
 	}
 	key := strings.TrimSpace(raw[:idx])
 	nk := normalizeFlagKey(cmd, key)
-	if _, ok := allowed[nk]; !ok {
-		return fmt.Errorf("%w: %q", ErrUnknownJSONFlagKey, key)
+	if nk != JSONModelPathKey {
+		if _, ok := allowed[nk]; !ok {
+			return fmt.Errorf("%w: %q", ErrUnknownJSONFlagKey, key)
+		}
 	}
-	val := strings.TrimSpace(raw[idx+1:])
-	dst[nk] = val
+	dst[nk] = strings.TrimSpace(raw[idx+1:])
 	return nil
 }

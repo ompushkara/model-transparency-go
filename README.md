@@ -487,7 +487,7 @@ You can verify in two ways:
 
 1. **Against the OCI manifest** (no files needed):
 ```bash
-[...$ model-signing verify manifest.json \
+[...]$ model-signing verify manifest.json \
   --signature model.sig \
   --identity "$identity" \
   --identity-provider "$oidc_provider"
@@ -511,9 +511,27 @@ The CLI supports the following global options available for all commands:
 |--------|-------------|---------|
 | `--log-level` | Set the minimum log level (`debug`, `info`, `warn`, `error`, `silent`) | `info` |
 | `--log-format` | Set the log output format (`text`, `json`) | `text` |
-| `--json` | Set other flags from a JSON object or `key=value` (repeat to merge). Use `--json -` to read that text from stdin. Not log format. | (none) |
+| `--json` | Merge flag values from a JSON object and/or `key=value` text (see below). | (none) |
 | `--output-file` | Redirect log output to a file | stdout |
 | `--timeout` | Command execution timeout | `3m` |
+
+#### `--json` flag configuration
+
+The `--json` flag is **not** related to `--log-format json`. The latter controls how **log records** are formatted; `--json` supplies **command flags** (for example signing or verification options) as structured input.
+
+**Routing and validation.** Whether you use Sigstore, key-based, or certificate-based signing or verification is determined by the **subcommand** you invoke (`sign`, `sign key`, `verify key`, and so on). That choice is not expressed as a JSON field. After the command line is parsed, each `--json` payload may only contain keys that name **flags defined for the command that actually runs** (plus the reserved `model` key described below). Use the same names as in `--help` (underscores in keys are normalized the same way as on the command line). Unknown keys are rejected. Path, key, and certificate checks are still enforced by the signing and verification libraries under `pkg/signing` and `pkg/verify`.
+
+**Reserved `model` key.** You may pass the model path as a positional argument or, if you omit it, set `"model"` in the JSON object (or `model=…` in `key=value` form). If both a positional path and `"model"` are present, the **positional path is used**.
+
+**Precedence.** Any flag set explicitly on the command line takes precedence over a value supplied through `--json` for the same flag.
+
+**Merging and stdin.** You may repeat `--json`; later values override earlier ones for the same key. Use `--json -` once per invocation to read JSON or `key=value` text from standard input.
+
+**Example** (key signing, model path and flags from JSON):
+
+```bash
+[...]$ model-signing sign key --json '{"model":"bert-base-uncased","private-key":"key.priv","signature":"model_key.sig"}'
+```
 
 **CLI examples:**
 

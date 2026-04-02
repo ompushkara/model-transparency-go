@@ -15,11 +15,30 @@
 package options
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 )
+
+func TestJSONFlags_ResolveModelPath(t *testing.T) {
+	j := NewJSONFlags()
+	j.modelPathFromJSON = "/from-json"
+	got, err := j.ResolveModelPath(nil)
+	if err != nil || got != "/from-json" {
+		t.Fatalf("ResolveModelPath(nil) = %q, %v", got, err)
+	}
+	got, err = j.ResolveModelPath([]string{"/pos"})
+	if err != nil || got != "/pos" {
+		t.Fatalf("ResolveModelPath(pos) = %q, %v", got, err)
+	}
+	j.modelPathFromJSON = ""
+	_, err = j.ResolveModelPath(nil)
+	if err == nil {
+		t.Fatal("expected error when no path")
+	}
+}
 
 func TestJSONFlags_ParseAndApply_satisfiesRequired(t *testing.T) {
 	root := &cobra.Command{Use: "root", TraverseChildren: true, SilenceUsage: true}
@@ -119,5 +138,56 @@ func TestJSONFlags_parseWithStdin_inlineUnchanged(t *testing.T) {
 	}
 	if data["signature"] != "/inline" {
 		t.Fatalf("got %#v", data)
+	}
+}
+
+func TestJSONFlags_parseWithStdin_modelKeyReserved(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("signature", "", "")
+
+	j := &JSONFlags{jsonInputs: []string{`{"model":"/m","signature":"/s"}`}}
+	data, err := j.parseWithStdin(cmd, strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, rerr := j.ResolveModelPath(nil)
+	if rerr != nil || got != "/m" {
+		t.Fatalf("ResolveModelPath(nil) = %q, %v", got, rerr)
+	}
+	if _, ok := data[JSONModelPathKey]; ok {
+		t.Fatalf("model should not remain in data map: %#v", data)
+	}
+	if data["signature"] != "/s" {
+		t.Fatalf("got %#v", data)
+	}
+}
+
+func TestJSONFlags_parseWithStdin_modelKeyValueForm(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("signature", "", "")
+
+	j := &JSONFlags{jsonInputs: []string{`model=/fromkv,signature=/sig`}}
+	data, err := j.parseWithStdin(cmd, strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, rerr := j.ResolveModelPath(nil)
+	if rerr != nil || got != "/fromkv" {
+		t.Fatalf("ResolveModelPath(nil) = %q, %v", got, rerr)
+	}
+	if data["signature"] != "/sig" {
+		t.Fatalf("got %#v", data)
+	}
+}
+
+func TestJSONFlags_parseWithStdin_unknownKeyStillFails(t *testing.T) {
+	cmd := &cobra.Command{}
+	j := &JSONFlags{jsonInputs: []string{`{"model":"/m","not-a-flag":1}`}}
+	_, err := j.parseWithStdin(cmd, strings.NewReader(""))
+	if err == nil {
+		t.Fatal("expected unknown key error")
+	}
+	if !errors.Is(err, ErrUnknownJSONFlagKey) {
+		t.Fatalf("got %v", err)
 	}
 }
