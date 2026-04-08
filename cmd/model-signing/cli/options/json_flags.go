@@ -206,6 +206,17 @@ func materializeJSONArg(rawIn string, stdin io.Reader, stdinConsumed *bool) (str
 	return s, nil
 }
 
+// ensureJSONMergeKeyAllowed rejects keys that are not the reserved model path key and not in allowed.
+func ensureJSONMergeKeyAllowed(nk, key string, allowed map[string]struct{}) error {
+	if nk == JSONModelPathKey {
+		return nil
+	}
+	if _, ok := allowed[nk]; !ok {
+		return fmt.Errorf("%w: %q", ErrUnknownJSONFlagKey, key)
+	}
+	return nil
+}
+
 func mergeJSONObject(cmd *cobra.Command, dst map[string]string, allowed map[string]struct{}, raw string) error {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
@@ -216,10 +227,8 @@ func mergeJSONObject(cmd *cobra.Command, dst map[string]string, allowed map[stri
 	}
 	for key, rawMsg := range obj {
 		nk := normalizeFlagKey(cmd, key)
-		if nk != JSONModelPathKey {
-			if _, ok := allowed[nk]; !ok {
-				return fmt.Errorf("%w: %q", ErrUnknownJSONFlagKey, key)
-			}
+		if err := ensureJSONMergeKeyAllowed(nk, key, allowed); err != nil {
+			return err
 		}
 		s, err := stringifyJSONValue(rawMsg)
 		if err != nil {
@@ -274,10 +283,8 @@ func mergeKeyValue(cmd *cobra.Command, dst map[string]string, allowed map[string
 	}
 	key := strings.TrimSpace(raw[:idx])
 	nk := normalizeFlagKey(cmd, key)
-	if nk != JSONModelPathKey {
-		if _, ok := allowed[nk]; !ok {
-			return fmt.Errorf("%w: %q", ErrUnknownJSONFlagKey, key)
-		}
+	if err := ensureJSONMergeKeyAllowed(nk, key, allowed); err != nil {
+		return err
 	}
 	dst[nk] = strings.TrimSpace(raw[idx+1:])
 	return nil
